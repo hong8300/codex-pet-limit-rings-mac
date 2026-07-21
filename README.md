@@ -1,130 +1,140 @@
 # codex-pet-limit-rings-mac
 
-Codex pets are tiny ambient companions for the work happening in Codex. This project adds one more layer to that idea: your pet can quietly show how much Codex capacity you have left, without turning the app into a dashboard.
+Codex のペットの周囲に、Codex の週次残り容量をリングで表示する macOS 用コンパニオンアプリです。
 
-The experience is a small macOS companion app. It watches where the Codex pet is, draws one polished weekly-limit ring around it, and keeps that ring attached to the pet as it moves. It does not patch Codex, change pet art, or modify the Codex app bundle.
+Codex アプリ本体は変更しません。ペット画像の差し替えも、Codex の app bundle へのパッチも行いません。別プロセスの透明な常時前面ウィンドウとしてリングを描画し、Codex が表示しているペットの位置とサイズに追従します。
 
-It works with whatever Codex pet you like. Built-in pet, custom pet, tiny dog, robot, weather daemon, or anything else: the app does not care. It only follows the pet window that Codex is already showing.
+Apple Silicon Mac 向けです。
 
-![Codex Pet Limit Rings around a Codex pet](docs/assets/codex-pet-limit-rings-screenshot.png)
+![週次残り容量リングのプレビュー](docs/assets/codex-pet-limit-rings-screenshot.png)
 
-## What You See
+## 表示内容
 
-The ring is designed to be glanceable:
+- 週次制限の残り割合を 1 本のリングで表示します。
+- 残り容量が少なくなると、リング色が青からアンバー、赤へ変わります。
+- ペットまたはリングにマウスを重ねると、正確な残り割合と JST のリセット日時を表示します。
+- メニューバーの小さなアイコンから、リング表示の切り替え、再読み込み、終了ができます。
 
-- The ring shows the weekly limit remaining.
-- Color moves from calm blue to amber and red as weekly capacity gets low.
-- Hovering over the pet or ring shows the exact remaining percentage and the JST reset date.
-- A small menu-bar icon lets you hide the rings, refresh data, or quit.
+Codex のペットを閉じるとリングも消えます。ペットを再表示するとリングも戻ります。ペットのサイズを変更した場合も、`~/.codex/config.toml` の `avatar-overlay-mascot-width-px` を読んでリングサイズを追従させます。
 
-When the Codex pet is closed, the rings disappear. When the pet comes back, they come back too. On multi-display setups, the rings stay with the pet instead of jumping to whichever screen is focused.
+## 最初に build は必要？
 
-Because the rings are drawn in a separate transparent overlay, they do not need pet-specific sprites, masks, metadata, or configuration. Change pets in Codex and the rings follow the new one automatically.
+通常は不要です。
 
-## Why It Works This Way
-
-The important design choice is the companion boundary. A menu item inside Codex itself would mean patching Electron app files and redoing that patch after app updates. That is brittle and hard to open source.
-
-`codex-pet-limit-rings` stays outside the Codex app. It reads local Codex state, asks ChatGPT for live weekly usage data using the local Codex/ChatGPT token, and renders its own transparent always-on-top window around the pet. The result is reversible, inspectable, and easy for another Codex agent to install or modify.
-
-Pet wakeups are handled by a lightweight filesystem watcher on Codex's local global-state file, with a slow fallback timer as a safety net. That lets the rings snap back when the pet is re-enabled without constantly polling for position changes.
-
-## Quick Start
-
-Install the rings as a login item:
+インストールする場合は、最初から次を実行してください。
 
 ```bash
 tools/install-limit-rings.sh
 ```
 
-You should see a small rings icon in the macOS menu bar. Use that menu to toggle `Show Rings`, refresh the latest usage data, or quit.
+このスクリプトが内部で build し、`~/Applications/CodexPetLimitRings.app` を作成して LaunchAgent に登録します。
 
-Then use any Codex pet normally. No pet setup step is required.
-
-Run a development build without installing the login item:
+開発用に一時起動する場合も、手動 build は不要です。
 
 ```bash
 tools/run-limit-rings.sh
 ```
 
-Uninstall everything the installer adds:
+このスクリプトも内部で build して、`tmp/CodexPetLimitRings.app` を起動します。
+
+手動で `tools/build-limit-rings.sh` を実行するのは、アプリ bundle だけを作りたい場合や、開発中に build 単体を検証したい場合です。
+
+## 使い方
+
+ログイン時に自動起動する形でインストール:
+
+```bash
+tools/install-limit-rings.sh
+```
+
+インストール後、macOS のメニューバーにリングのアイコンが出ます。そこから `Show Rings`、`Refresh Now`、終了操作ができます。
+
+開発用に一時起動:
+
+```bash
+tools/run-limit-rings.sh
+```
+
+アンインストール:
 
 ```bash
 tools/uninstall-limit-rings.sh
 ```
 
-## Give This Repo To Codex
+## 仕組み
 
-This repository is structured so a Codex agent can pick it up from a GitHub link.
+このアプリは Codex の外側で動くコンパニオンアプリです。Codex 本体を変更しないため、Codex のアップデートで app bundle のパッチが壊れる問題を避けられます。
 
-Ask the agent:
+読み取る情報はローカルの Codex 状態ファイルと、ChatGPT の usage endpoint だけです。
 
-```text
-Use the bundled codex-pet-limit-rings skill from this repository. Install the rings companion for my Codex pet, verify the LaunchAgent is running, and confirm the rings stay anchored to the pet.
-```
+- `~/.codex/auth.json`: ChatGPT usage endpoint を読むためのローカル bearer token
+- `https://chatgpt.com/backend-api/wham/usage`: 週次制限の live usage
+- `~/.codex/.codex-global-state.json`: ペットの表示状態と位置
+- `~/.codex/config.toml`: ペットサイズ `avatar-overlay-mascot-width-px`
+- `~/.codex/logs_2.sqlite`: 古い `codex.rate_limits` イベントがある場合だけ legacy fallback として使用
 
-The agent should read:
+OpenAI API key は不要です。ペット画像、スクリーンショット、プロンプト、リポジトリ内容は送信しません。
 
-- `AGENTS.md` for the project contract.
-- `skills/codex-pet-limit-rings/SKILL.md` for the install, debug, and validation workflow.
-- `docs/limit-rings.md` for the data and rendering model.
-
-To install the bundled skill into local Codex:
-
-```bash
-tools/install-codex-skill.sh
-```
-
-## Data And Privacy
-
-The app reads only local Codex files and one ChatGPT usage endpoint:
-
-- `~/.codex/.codex-global-state.json` tells it whether the pet is open and where it is.
-- `~/.codex/config.toml` provides the current `avatar-overlay-mascot-width-px` value so the ring follows pet size changes.
-- `~/.codex/auth.json` provides the local bearer token used to read live usage from ChatGPT.
-- `~/.codex/logs_2.sqlite` is used only as a legacy cached fallback if an older `codex.rate_limits` event is available.
-
-It does not require an OpenAI API key. It does not send pet images, screenshots, prompts, or repo contents anywhere.
-
-## Project Shape
+## プロジェクト構成
 
 ```text
 tools/
-  codex-pet-limit-rings.swift      native macOS companion app
-  install-limit-rings.sh           build, install, and start at login
-  uninstall-limit-rings.sh         remove the app and login item
-  run-limit-rings.sh               development launch
-  build-limit-rings.sh             app bundle builder
-  install-codex-skill.sh           copy the bundled skill into ~/.codex/skills
+  codex-pet-limit-rings.swift      macOS ネイティブアプリ本体
+  install-limit-rings.sh           build してインストールし、ログイン時起動に登録
+  uninstall-limit-rings.sh         アプリと LaunchAgent を削除
+  run-limit-rings.sh               開発用に build して一時起動
+  build-limit-rings.sh             .app bundle を作成
+  install-codex-skill.sh           同梱 skill を ~/.codex/skills にコピー
 
 skills/codex-pet-limit-rings/
-  SKILL.md                         Codex-agent workflow for this project
+  SKILL.md                         Codex agent 用の作業手順
 
 docs/
-  limit-rings.md                   implementation contract and data flow
+  limit-rings.md                   実装契約とデータフロー
 ```
 
-## Development
+## 開発
 
-Build the app:
-
-```bash
-tools/build-limit-rings.sh
-```
-
-Render a static preview PNG:
-
-```bash
-swiftc tools/codex-pet-limit-rings.swift -o tmp/codex-pet-limit-rings -framework AppKit -lsqlite3
-tmp/codex-pet-limit-rings --preview tmp/limit-rings-preview.png --size 164
-```
-
-Validate the shell scripts:
+スクリプト構文を確認:
 
 ```bash
 bash -n tools/*.sh
 ```
 
-## License
+Swift を直接 build:
+
+```bash
+swiftc tools/codex-pet-limit-rings.swift -o tmp/codex-pet-limit-rings -framework AppKit -lsqlite3
+```
+
+静的プレビュー PNG を生成:
+
+```bash
+tmp/codex-pet-limit-rings --preview tmp/limit-rings-preview.png --size 164
+```
+
+アプリ bundle を作成:
+
+```bash
+tools/build-limit-rings.sh
+```
+
+## Codex にこの workflow を渡す
+
+このリポジトリには Codex agent 用の skill が同梱されています。
+
+ローカル Codex に skill をインストール:
+
+```bash
+tools/install-codex-skill.sh
+```
+
+Codex に依頼する場合の例:
+
+```text
+このリポジトリの codex-pet-limit-rings skill を使って、Codex ペット用のリング companion をインストールし、LaunchAgent が動作していることと、リングがペットに追従することを確認してください。
+```
+
+## ライセンス
 
 MIT. See `LICENSE`.
