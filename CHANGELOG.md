@@ -7,6 +7,7 @@ Notable changes to `codex-pet-limit-rings` are recorded here.
 ### Added
 
 - Hover readouts now show the weekly reset date in JST beneath the remaining percentage.
+- The menu now includes `ログイン時に起動`, with installed builds defaulting launch-at-login to on.
 - Pet frame reading now supports current Codex global-state files where live overlay coordinates and cached mascot geometry are stored separately.
 - Pet ring placement now scales from `avatar-overlay-mascot-width-px`, so changing the Codex pet size keeps the ring centered.
 

@@ -8,6 +8,7 @@ The rings are pet-agnostic. They work with any pet Codex displays because the ap
 
 - A rings icon appears in the macOS menu bar.
 - `Show Rings` toggles the overlay without quitting the app.
+- `ログイン時に起動` toggles the LaunchAgent login item. Installed builds default this setting to on.
 - `Refresh Now` rereads usage and pet-position state.
 - Hovering over the ring or pet shows the exact weekly remaining percentage and JST reset date at the arc endpoint.
 - Dragging the pet makes the rings follow the gesture immediately while Codex persists the new position.
@@ -53,6 +54,8 @@ and installs:
 ```
 
 The LaunchAgent starts the app at login. The installer also removes the earlier prototype app and LaunchAgent names if present:
+
+Installed builds default launch-at-login to on by writing this LaunchAgent during installation. The menu item can remove or recreate the same plist for future logins without patching the Codex app.
 
 ```text
 ~/Applications/CodexLimitAura.app

@@ -37,6 +37,7 @@ private let ringsVisibleDefaultsKey = "CodexPetLimitRings.ringsVisible"
 private let liveUsageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
 private let weeklyWindowMinutes = 7.0 * 24.0 * 60.0
 private let codexWindowOwnerNames = Set(["Codex", "ChatGPT"])
+private let launchAgentLabel = "com.codex-pet.limit-rings"
 
 private func normalizedEpochSeconds(_ value: TimeInterval) -> TimeInterval {
     value > 10_000_000_000 ? value / 1000.0 : value
@@ -49,6 +50,58 @@ private func formatResetJST(_ resetAt: TimeInterval?) -> String? {
     formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
     formatter.dateFormat = "yyyy/MM/dd HH:mm 'JST'"
     return formatter.string(from: Date(timeIntervalSince1970: normalizedEpochSeconds(resetAt)))
+}
+
+struct LaunchAtLoginController {
+    private let fileManager = FileManager.default
+    private let home = FileManager.default.homeDirectoryForCurrentUser
+
+    var agentURL: URL {
+        home.appendingPathComponent("Library/LaunchAgents/\(launchAgentLabel).plist")
+    }
+
+    var logsDirectoryURL: URL {
+        home.appendingPathComponent("Library/Logs")
+    }
+
+    var isEnabled: Bool {
+        fileManager.fileExists(atPath: agentURL.path)
+    }
+
+    func enable() throws {
+        try fileManager.createDirectory(at: agentURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: logsDirectoryURL, withIntermediateDirectories: true)
+
+        let plist: [String: Any] = [
+            "Label": launchAgentLabel,
+            "ProgramArguments": [loginExecutableURL().path],
+            "RunAtLoad": true,
+            "LimitLoadToSessionType": "Aqua",
+            "StandardOutPath": logsDirectoryURL.appendingPathComponent("CodexPetLimitRings.log").path,
+            "StandardErrorPath": logsDirectoryURL.appendingPathComponent("CodexPetLimitRings.err.log").path
+        ]
+        let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        try data.write(to: agentURL, options: .atomic)
+    }
+
+    func disable() throws {
+        if fileManager.fileExists(atPath: agentURL.path) {
+            try fileManager.removeItem(at: agentURL)
+        }
+    }
+
+    private func loginExecutableURL() -> URL {
+        let installed = home.appendingPathComponent("Applications/CodexPetLimitRings.app/Contents/MacOS/CodexPetLimitRings")
+        if fileManager.isExecutableFile(atPath: installed.path) {
+            return installed
+        }
+
+        if let executable = Bundle.main.executableURL {
+            return executable
+        }
+
+        return URL(fileURLWithPath: CommandLine.arguments[0])
+    }
 }
 
 private struct EventPayload: Decodable {
@@ -947,12 +1000,14 @@ final class LimitRingsApp: NSObject {
     private let config: LimitRingsConfig
     private let stateReader: LimitStateReader
     private let frameReader: PetFrameReader
+    private let launchAtLoginController = LaunchAtLoginController()
     private let panel: NSPanel
     private let ringView: LimitRingView
     private let stateQueue = DispatchQueue(label: "codex-pet-limit-rings.state-reader")
     private var statusItem: NSStatusItem?
     private var summaryItem: NSMenuItem?
     private var showRingsItem: NSMenuItem?
+    private var launchAtLoginItem: NSMenuItem?
     private var stateTimer: Timer?
     private var frameTimer: Timer?
     private var animationTimer: Timer?
@@ -1184,6 +1239,11 @@ final class LimitRingsApp: NSObject {
         menu.addItem(showItem)
         showRingsItem = showItem
 
+        let launchItem = NSMenuItem(title: "ログイン時に起動", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        launchItem.target = self
+        menu.addItem(launchItem)
+        launchAtLoginItem = launchItem
+
         let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow(_:)), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
@@ -1197,6 +1257,7 @@ final class LimitRingsApp: NSObject {
         item.menu = menu
         updateSummaryMenuItem()
         updateShowRingsMenuItem()
+        updateLaunchAtLoginMenuItem()
     }
 
     private func makeStatusBarIcon() -> NSImage {
@@ -1241,6 +1302,10 @@ final class LimitRingsApp: NSObject {
         showRingsItem?.state = ringsVisible ? .on : .off
     }
 
+    private func updateLaunchAtLoginMenuItem() {
+        launchAtLoginItem?.state = launchAtLoginController.isEnabled ? .on : .off
+    }
+
     private func updateRingVisibility() {
         updateShowRingsMenuItem()
         if ringsVisible, currentPetFrameAppKit != nil {
@@ -1262,6 +1327,20 @@ final class LimitRingsApp: NSObject {
         setRingsVisible(!ringsVisible)
     }
 
+    @objc private func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        do {
+            if launchAtLoginController.isEnabled {
+                try launchAtLoginController.disable()
+            } else {
+                try launchAtLoginController.enable()
+            }
+            updateLaunchAtLoginMenuItem()
+        } catch {
+            updateLaunchAtLoginMenuItem()
+            showMenuActionError("ログイン時起動の設定を変更できませんでした。", error: error)
+        }
+    }
+
     @objc private func refreshNow(_ sender: NSMenuItem) {
         updateState()
         updateFrame()
@@ -1270,6 +1349,14 @@ final class LimitRingsApp: NSObject {
 
     @objc private func quit(_ sender: NSMenuItem) {
         NSApp.terminate(nil)
+    }
+
+    private func showMenuActionError(_ message: String, error: Error) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     private func installDragFollow() {

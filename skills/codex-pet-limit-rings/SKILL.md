@@ -31,6 +31,8 @@ Install or enable the rings for a user:
 tools/install-limit-rings.sh
 ```
 
+The installer builds the app, installs it into `~/Applications`, and enables login launch by default via `~/Library/LaunchAgents/com.codex-pet.limit-rings.plist`. Users can toggle that same setting from the menu item labeled `ログイン時に起動`.
+
 Run a development build without installing a login item:
 
 ```bash
