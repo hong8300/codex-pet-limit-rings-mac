@@ -1,0 +1,8 @@
+tmp/
+*.log
+*.err.log
+.DS_Store
+.codex-global-state.json
+logs_*.sqlite*
+state_*.sqlite*
+auth.json
