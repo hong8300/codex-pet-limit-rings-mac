@@ -31,7 +31,7 @@ Install or enable the rings for a user:
 tools/install-limit-rings.sh
 ```
 
-The installer builds the app, installs it into `~/Applications`, and enables login launch by default via `~/Library/LaunchAgents/com.codex-pet.limit-rings.plist`. Users can toggle that same setting from the menu item labeled `ログイン時に起動`.
+The installer builds the app, installs it into `~/Applications`, and enables login launch by default via `~/Library/LaunchAgents/com.codex-pet.limit-rings.plist`. Users can toggle that same setting from the menu item labeled `ログイン時に起動`. Hover readout size is controlled from the menu submenu `文字サイズ` (`小` / `中` / `大` / `特大` / `最大`, default `大` = 2×); the choice is stored in UserDefaults as `CodexPetLimitRings.readoutTextScale`.
 
 Run a development build without installing a login item:
 
@@ -67,7 +67,7 @@ The rings read:
 - `~/.codex/config.toml` for `avatar-overlay-mascot-width-px`, so cached geometry can be scaled to the user's current pet size.
 - `~/.codex/logs_2.sqlite` only as a legacy fallback to the newest `codex.rate_limits` event when live usage fails and that older event exists.
 
-The visible ring is the weekly remaining percentage. Current Codex no longer exposes a five-hour limit for this app to show. The menu summary should include the weekly percentage and the reset date in JST, and should say `Live` when direct usage succeeds and `Cached` when the legacy local log fallback is active.
+The visible ring is the weekly remaining percentage. Current Codex no longer exposes a five-hour limit for this app to show. The menu summary should include the weekly percentage and the reset date in JST, and should say `Live` when direct usage succeeds and `Cached` when the legacy local log fallback is active. Hover readouts use a user-selectable text scale (default 2×); keep panel padding and label metrics tied to that scale when changing readout rendering.
 
 Pet wakeups and moves are driven by a filesystem watcher on `~/.codex/.codex-global-state.json`, with a slow fallback timer for missed events. Keep that event-driven path intact when changing frame-following behavior.
 

@@ -34,10 +34,40 @@ private let petFrameStateDebounceInterval: TimeInterval = 0.035
 private let dragFollowInterval: TimeInterval = 1.0 / 60.0
 private let dragLiveMismatchTolerance: CGFloat = 96.0
 private let ringsVisibleDefaultsKey = "CodexPetLimitRings.ringsVisible"
+private let readoutTextScaleDefaultsKey = "CodexPetLimitRings.readoutTextScale"
+private let defaultReadoutTextScale: Double = 2.0
+private let readoutTextScaleOptions: [(title: String, scale: Double)] = [
+    ("小", 1.0),
+    ("中", 1.5),
+    ("大", 2.0),
+    ("特大", 2.5),
+    ("最大", 3.0)
+]
 private let liveUsageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
 private let weeklyWindowMinutes = 7.0 * 24.0 * 60.0
 private let codexWindowOwnerNames = Set(["Codex", "ChatGPT"])
 private let launchAgentLabel = "com.codex-pet.limit-rings"
+
+private func loadReadoutTextScale() -> CGFloat {
+    let defaults = UserDefaults.standard
+    guard defaults.object(forKey: readoutTextScaleDefaultsKey) != nil else {
+        return CGFloat(defaultReadoutTextScale)
+    }
+    let value = defaults.double(forKey: readoutTextScaleDefaultsKey)
+    if let match = readoutTextScaleOptions.first(where: { abs($0.scale - value) < 0.01 }) {
+        return CGFloat(match.scale)
+    }
+    return CGFloat(defaultReadoutTextScale)
+}
+
+/// Panel padding grows with readout text scale so hover labels fit without resizing the ring away from the pet.
+private func panelPadding(forReadoutTextScale scale: CGFloat) -> CGFloat {
+    38.0 + 26.0 * (scale - 1.0)
+}
+
+private func readoutInset(forReadoutTextScale scale: CGFloat) -> CGFloat {
+    16.0 + 26.0 * (scale - 1.0)
+}
 
 private func normalizedEpochSeconds(_ value: TimeInterval) -> TimeInterval {
     value > 10_000_000_000 ? value / 1000.0 : value
@@ -654,6 +684,8 @@ struct LimitRingRenderer {
     var state: LimitState
     var phase: Double
     var showsReadout: Bool = false
+    /// Multiplier over the original readout font sizes (11.5pt percent / 9pt detail).
+    var readoutTextScale: CGFloat = CGFloat(defaultReadoutTextScale)
 
     func draw(in rect: CGRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -666,7 +698,8 @@ struct LimitRingRenderer {
         let urgency = urgency(for: state.weekly)
         let breathe = CGFloat((sin(phase * 2.0 * .pi) + 1.0) * 0.5)
         let pulse = CGFloat(1.0 + urgency * 0.025 * breathe)
-        let outerRadius = (minSide * 0.5 - 16.0) * pulse
+        // Keep the ring close to the pet while leaving room outside for hover readouts.
+        let outerRadius = (minSide * 0.5 - readoutInset(forReadoutTextScale: readoutTextScale)) * pulse
 
         drawHalo(context, center: center, radius: outerRadius, urgency: CGFloat(urgency), breathe: breathe)
         drawTicks(context, center: center, radius: outerRadius + 5.0)
@@ -801,12 +834,13 @@ struct LimitRingRenderer {
     private func drawLimitReadouts(_ context: CGContext, center: CGPoint, outerRadius: CGFloat, bounds: CGRect) {
         var readouts: [LimitReadout] = []
         if let weekly = state.weekly {
+            let labelRadiusOffset = 22.0 + 14.0 * (readoutTextScale - 1.0)
             readouts.append(makeReadout(
                 text: formatPercent(weekly.remainingPercent),
                 detailText: formatResetJST(weekly.resetAt),
                 center: center,
                 ringRadius: outerRadius,
-                labelRadius: outerRadius + 22.0,
+                labelRadius: outerRadius + labelRadiusOffset,
                 remainingPercent: weekly.remainingPercent,
                 color: color(forRemaining: weekly.remainingPercent, role: .weekly),
                 bounds: bounds
@@ -828,14 +862,19 @@ struct LimitRingRenderer {
         color: NSColor,
         bounds: CGRect
     ) -> LimitReadout {
+        let scale = readoutTextScale
         let angle = -CGFloat.pi / 2.0 + CGFloat(max(remainingPercent, 1.8) / 100.0) * CGFloat.pi * 2.0
         let ringPoint = point(center: center, radius: ringRadius, angle: angle)
         let labelPoint = point(center: center, radius: labelRadius, angle: angle)
         let percentSize = NSAttributedString(string: text, attributes: readoutPercentAttributes()).size()
         let detailSize = detailText.map { NSAttributedString(string: $0, attributes: readoutDetailAttributes()).size() } ?? .zero
         let labelSize = CGSize(
-            width: ceil(max(text.count > 3 ? 45.0 : 38.0, percentSize.width + 20.0, detailSize.width + 18.0)),
-            height: detailText == nil ? 22.0 : 34.0
+            width: ceil(max(
+                (text.count > 3 ? 45.0 : 38.0) * scale,
+                percentSize.width + 14.0 * scale,
+                detailSize.width + 12.0 * scale
+            )),
+            height: (detailText == nil ? 22.0 : 34.0) * scale
         )
         var labelRect = CGRect(
             x: labelPoint.x - labelSize.width / 2,
@@ -913,7 +952,8 @@ struct LimitRingRenderer {
         context.addLine(to: CGPoint(x: readout.labelRect.midX, y: readout.labelRect.midY))
         context.strokePath()
 
-        let path = CGPath(roundedRect: readout.labelRect, cornerWidth: 8.0, cornerHeight: 8.0, transform: nil)
+        let corner = max(6.0, 7.0 * readoutTextScale)
+        let path = CGPath(roundedRect: readout.labelRect, cornerWidth: corner, cornerHeight: corner, transform: nil)
         context.setShadow(offset: .zero, blur: 8.0, color: readout.color.withAlphaComponent(0.22).cgColor)
         context.setFillColor(NSColor(calibratedWhite: 0.055, alpha: 0.78).cgColor)
         context.addPath(path)
@@ -930,13 +970,13 @@ struct LimitRingRenderer {
         if let detailText = readout.detailText {
             let detail = NSAttributedString(string: detailText, attributes: readoutDetailAttributes())
             let detailSize = detail.size()
-            let totalHeight = percentSize.height + detailSize.height - 1.0
-            let detailY = readout.labelRect.midY - totalHeight / 2.0 - 0.5
-            let percentY = detailY + detailSize.height - 1.0
+            let totalHeight = percentSize.height + detailSize.height - 1.0 * readoutTextScale
+            let detailY = readout.labelRect.midY - totalHeight / 2.0 - 0.5 * readoutTextScale
+            let percentY = detailY + detailSize.height - 1.0 * readoutTextScale
             percent.draw(at: CGPoint(x: readout.labelRect.midX - percentSize.width / 2.0, y: percentY))
             detail.draw(at: CGPoint(x: readout.labelRect.midX - detailSize.width / 2.0, y: detailY))
         } else {
-            percent.draw(at: CGPoint(x: readout.labelRect.midX - percentSize.width / 2, y: readout.labelRect.midY - percentSize.height / 2 + 0.5))
+            percent.draw(at: CGPoint(x: readout.labelRect.midX - percentSize.width / 2, y: readout.labelRect.midY - percentSize.height / 2 + 0.5 * readoutTextScale))
         }
         context.restoreGState()
     }
@@ -964,16 +1004,16 @@ struct LimitRingRenderer {
 
     private func readoutPercentAttributes() -> [NSAttributedString.Key: Any] {
         [
-            .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold),
+            .font: NSFont.monospacedSystemFont(ofSize: 11.5 * readoutTextScale, weight: .semibold),
             .foregroundColor: NSColor(calibratedWhite: 1.0, alpha: 0.92)
         ]
     }
 
     private func readoutDetailAttributes() -> [NSAttributedString.Key: Any] {
         [
-            .font: NSFont.systemFont(ofSize: 9.0, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: 9.0 * readoutTextScale, weight: .semibold),
             .foregroundColor: NSColor(calibratedWhite: 1.0, alpha: 0.64),
-            .kern: -0.35
+            .kern: -0.35 * readoutTextScale
         ]
     }
 }
@@ -988,11 +1028,19 @@ final class LimitRingView: NSView {
     var showsReadout: Bool = false {
         didSet { needsDisplay = true }
     }
+    var readoutTextScale: CGFloat = CGFloat(defaultReadoutTextScale) {
+        didSet { needsDisplay = true }
+    }
 
     override var isOpaque: Bool { false }
 
     override func draw(_ dirtyRect: NSRect) {
-        LimitRingRenderer(state: state, phase: phase, showsReadout: showsReadout).draw(in: bounds)
+        LimitRingRenderer(
+            state: state,
+            phase: phase,
+            showsReadout: showsReadout,
+            readoutTextScale: readoutTextScale
+        ).draw(in: bounds)
     }
 }
 
@@ -1008,6 +1056,7 @@ final class LimitRingsApp: NSObject {
     private var summaryItem: NSMenuItem?
     private var showRingsItem: NSMenuItem?
     private var launchAtLoginItem: NSMenuItem?
+    private var readoutTextScaleItems: [NSMenuItem] = []
     private var stateTimer: Timer?
     private var frameTimer: Timer?
     private var animationTimer: Timer?
@@ -1035,6 +1084,7 @@ final class LimitRingsApp: NSObject {
         self.stateReader = LimitStateReader(logsPath: config.logsPath, authPath: config.authPath)
         self.frameReader = PetFrameReader(globalStatePath: config.globalStatePath, codexConfigPath: config.codexConfigPath)
         self.ringView = LimitRingView(frame: CGRect(origin: .zero, size: CGSize(width: config.fallbackSize, height: config.fallbackSize)))
+        self.ringView.readoutTextScale = loadReadoutTextScale()
         self.ringsVisible = UserDefaults.standard.object(forKey: ringsVisibleDefaultsKey) as? Bool ?? true
         self.panel = NSPanel(
             contentRect: CGRect(origin: .zero, size: CGSize(width: config.fallbackSize, height: config.fallbackSize)),
@@ -1201,7 +1251,7 @@ final class LimitRingsApp: NSObject {
     }
 
     private func setPanelFrame(forPetFrameTopLeft petFrame: CGRect) {
-        let padding: CGFloat = 38
+        let padding = panelPadding(forReadoutTextScale: ringView.readoutTextScale)
         let size = max(petFrame.width, petFrame.height) + padding * 2
         let topLeft = CGPoint(x: petFrame.midX - size / 2, y: petFrame.midY - size / 2)
         let origin = appKitOriginFromTopLeft(topLeft, size: CGSize(width: size, height: size))
@@ -1210,7 +1260,7 @@ final class LimitRingsApp: NSObject {
     }
 
     private func setPanelFrame(forPetFrameAppKit petFrame: CGRect) {
-        let padding: CGFloat = 38
+        let padding = panelPadding(forReadoutTextScale: ringView.readoutTextScale)
         let size = max(petFrame.width, petFrame.height) + padding * 2
         let origin = CGPoint(x: petFrame.midX - size / 2, y: petFrame.midY - size / 2)
         panel.setFrame(CGRect(origin: origin, size: CGSize(width: size, height: size)), display: true)
@@ -1244,6 +1294,23 @@ final class LimitRingsApp: NSObject {
         menu.addItem(launchItem)
         launchAtLoginItem = launchItem
 
+        let textSizeRoot = NSMenuItem(title: "文字サイズ", action: nil, keyEquivalent: "")
+        let textSizeMenu = NSMenu(title: "文字サイズ")
+        readoutTextScaleItems = []
+        for option in readoutTextScaleOptions {
+            let scaleItem = NSMenuItem(
+                title: "\(option.title)（\(formatReadoutTextScale(option.scale))）",
+                action: #selector(selectReadoutTextScale(_:)),
+                keyEquivalent: ""
+            )
+            scaleItem.target = self
+            scaleItem.representedObject = option.scale
+            textSizeMenu.addItem(scaleItem)
+            readoutTextScaleItems.append(scaleItem)
+        }
+        textSizeRoot.submenu = textSizeMenu
+        menu.addItem(textSizeRoot)
+
         let refreshItem = NSMenuItem(title: "Refresh Now", action: #selector(refreshNow(_:)), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
@@ -1258,6 +1325,7 @@ final class LimitRingsApp: NSObject {
         updateSummaryMenuItem()
         updateShowRingsMenuItem()
         updateLaunchAtLoginMenuItem()
+        updateReadoutTextScaleMenuItems()
     }
 
     private func makeStatusBarIcon() -> NSImage {
@@ -1306,6 +1374,24 @@ final class LimitRingsApp: NSObject {
         launchAtLoginItem?.state = launchAtLoginController.isEnabled ? .on : .off
     }
 
+    private func updateReadoutTextScaleMenuItems() {
+        let current = Double(ringView.readoutTextScale)
+        for item in readoutTextScaleItems {
+            guard let scale = item.representedObject as? Double else {
+                item.state = .off
+                continue
+            }
+            item.state = abs(scale - current) < 0.01 ? .on : .off
+        }
+    }
+
+    private func formatReadoutTextScale(_ scale: Double) -> String {
+        if abs(scale.rounded() - scale) < 0.01 {
+            return "\(Int(scale.rounded()))×"
+        }
+        return String(format: "%.1f×", scale)
+    }
+
     private func updateRingVisibility() {
         updateShowRingsMenuItem()
         if ringsVisible, currentPetFrameAppKit != nil {
@@ -1321,6 +1407,20 @@ final class LimitRingsApp: NSObject {
         ringsVisible = visible
         UserDefaults.standard.set(visible, forKey: ringsVisibleDefaultsKey)
         updateRingVisibility()
+    }
+
+    private func setReadoutTextScale(_ scale: Double) {
+        let resolved = readoutTextScaleOptions.first(where: { abs($0.scale - scale) < 0.01 })?.scale ?? defaultReadoutTextScale
+        let cgScale = CGFloat(resolved)
+        ringView.readoutTextScale = cgScale
+        UserDefaults.standard.set(resolved, forKey: readoutTextScaleDefaultsKey)
+        updateReadoutTextScaleMenuItems()
+        if let petFrame = currentPetFrameAppKit {
+            setPanelFrame(forPetFrameAppKit: petFrame)
+        }
+        if ringsVisible {
+            updateTooltip(at: NSEvent.mouseLocation)
+        }
     }
 
     @objc private func toggleRings(_ sender: NSMenuItem) {
@@ -1339,6 +1439,11 @@ final class LimitRingsApp: NSObject {
             updateLaunchAtLoginMenuItem()
             showMenuActionError("ログイン時起動の設定を変更できませんでした。", error: error)
         }
+    }
+
+    @objc private func selectReadoutTextScale(_ sender: NSMenuItem) {
+        let scale = (sender.representedObject as? Double) ?? defaultReadoutTextScale
+        setReadoutTextScale(scale)
     }
 
     @objc private func refreshNow(_ sender: NSMenuItem) {

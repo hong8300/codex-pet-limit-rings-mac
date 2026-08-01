@@ -9,6 +9,7 @@ The rings are pet-agnostic. They work with any pet Codex displays because the ap
 - A rings icon appears in the macOS menu bar.
 - `Show Rings` toggles the overlay without quitting the app.
 - `ログイン時に起動` toggles the LaunchAgent login item. Installed builds default this setting to on.
+- `文字サイズ` sets the hover readout font scale: `小` / `中` / `大` / `特大` / `最大` (1×–3×). The default is `大` (2×). The choice is stored in UserDefaults and survives relaunches.
 - `Refresh Now` rereads usage and pet-position state.
 - Hovering over the ring or pet shows the exact weekly remaining percentage and JST reset date at the arc endpoint.
 - Dragging the pet makes the rings follow the gesture immediately while Codex persists the new position.
@@ -38,6 +39,10 @@ No OpenAI API key is required. The menu summary says `Live` when the direct usag
 - Reset label: JST reset date from the same weekly bucket, shown in the menu and hover readout.
 - Ring colors are derived from remaining capacity: blue for healthy, amber for low, red for critical.
 - Exact percentages are shown only on hover and in the menu to keep the pet feeling ambient rather than dashboard-like.
+- Hover readout font size is user-selectable via the menu-bar `文字サイズ` submenu. Scales are relative to the original base fonts (11.5pt percent / 9pt detail): 1.0, 1.5, 2.0 (default), 2.5, and 3.0. Panel padding grows with the scale so larger labels stay readable without moving the ring away from the pet.
+- Preferences stored by the app:
+  - `CodexPetLimitRings.ringsVisible` — whether the overlay is shown.
+  - `CodexPetLimitRings.readoutTextScale` — hover readout scale multiplier.
 
 ## Install Contract
 
@@ -62,7 +67,7 @@ Installed builds default launch-at-login to on by writing this LaunchAgent durin
 ~/Library/LaunchAgents/com.codex-pet.limit-aura.plist
 ```
 
-`tools/uninstall-limit-rings.sh` unloads the LaunchAgent, removes the app bundle, clears the saved ring visibility preference, and also cleans up those earlier prototype names.
+`tools/uninstall-limit-rings.sh` unloads the LaunchAgent, removes the app bundle, clears saved preferences (`ringsVisible`, `readoutTextScale`), and also cleans up those earlier prototype names.
 
 ## Development
 
