@@ -6,7 +6,7 @@ Codex アプリ本体は変更しません。ペット画像の差し替えも�
 
 Apple Silicon Mac 向けです。
 
-![5 時間・週次残り容量リングのプレビュー](docs/assets/codex-pet-limit-rings-five-hour-preview.png)
+![5 時間・週次残り容量リングのプレビュー](docs/assets/codex-pet-limit-rings-preview-20260826.png)
 
 ## 表示内容
 
