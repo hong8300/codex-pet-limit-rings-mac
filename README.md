@@ -1,18 +1,18 @@
 # codex-pet-limit-rings-mac
 
-Codex のペットの周囲に、Codex の週次残り容量をリングで表示する macOS 用コンパニオンアプリです。
+Codex のペットの周囲に、Codex の 5 時間・週次残り容量をリングで表示する macOS 用コンパニオンアプリです。
 
 Codex アプリ本体は変更しません。ペット画像の差し替えも、Codex の app bundle へのパッチも行いません。別プロセスの透明な常時前面ウィンドウとしてリングを描画し、Codex が表示しているペットの位置とサイズに追従します。
 
 Apple Silicon Mac 向けです。
 
-![週次残り容量リングと現在のペットのプレビュー](docs/assets/codex-pet-limit-rings-haruhi-preview.png)
+![5 時間・週次残り容量リングと現在のペットのプレビュー](docs/assets/codex-pet-limit-rings-five-hour-preview.png)
 
 ## 表示内容
 
-- 週次制限の残り割合を 1 本のリングで表示します。
+- 週次制限を外側、5 時間制限を内側のリングで表示します。5 時間制限が usage endpoint にない場合は週次リングだけを表示します。
 - 残り容量が少なくなると、リング色が青からアンバー、赤へ変わります。
-- ペットまたはリングにマウスを重ねると、正確な残り割合と JST のリセット日時を表示します。
+- ペットまたはリングにマウスを重ねると、5 時間・週次それぞれの正確な残り割合と JST のリセット日時を表示します。
 - メニューバーの小さなアイコンから、リング表示の切り替え、ログイン時起動の切り替え、ホバー文字サイズの変更、再読み込み、終了ができます。
 - ホバー時の文字サイズはメニューの `文字サイズ` から `小` / `中` / `大` / `特大` / `最大`（1×〜3×）で変更でき、選択は次回起動以降も保持されます。初期値は `大`（2×）です。
 
@@ -69,7 +69,7 @@ tools/uninstall-limit-rings.sh
 読み取る情報はローカルの Codex 状態ファイルと、ChatGPT の usage endpoint だけです。
 
 - `~/.codex/auth.json`: ChatGPT usage endpoint を読むためのローカル bearer token
-- `https://chatgpt.com/backend-api/wham/usage`: 週次制限の live usage
+- `https://chatgpt.com/backend-api/wham/usage`: 5 時間・週次制限の live usage
 - `~/.codex/.codex-global-state.json`: ペットの表示状態と位置
 - `~/.codex/config.toml`: ペットサイズ `avatar-overlay-mascot-width-px`
 - `~/.codex/logs_2.sqlite`: 古い `codex.rate_limits` イベントがある場合だけ legacy fallback として使用
