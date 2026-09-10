@@ -67,7 +67,7 @@ The rings read:
 - `~/.codex/config.toml` for `avatar-overlay-mascot-width-px`, so cached geometry can be scaled to the user's current pet size.
 - `~/.codex/logs_2.sqlite` only as a legacy fallback to the newest `codex.rate_limits` event when live usage fails and that older event exists.
 
-The outer ring is the weekly remaining percentage and the inner ring is the five-hour remaining percentage. Identify the windows by their durations (604800 and 18000 seconds) rather than primary/secondary ordering, and omit the inner ring when the five-hour window is absent. The menu summary and hover readouts should include both available percentages and reset dates in JST, and should say `Live` when direct usage succeeds and `Cached` when the legacy local log fallback is active. Hover readouts use a user-selectable text scale (default 2×); keep panel padding and label metrics tied to that scale when changing readout rendering.
+The rings run outside to inside: normal weekly (blue), normal five-hour (green, when present), Spark weekly (purple), Spark five-hour (pink). Read Spark separately from `additional_rate_limits` using `codex_bengalfox` or the exact name `GPT-5.3-Codex-Spark`; never substitute its buckets for normal usage. Pro accounts with only a normal weekly window and both Spark windows show three rings. Other additional limits are ignored. Identify the windows by their durations (604800 and 18000 seconds) rather than primary/secondary ordering, and omit the inner ring when the five-hour window is absent. The menu summary and hover readouts should include both available percentages and reset dates in JST, and should say `Live` when direct usage succeeds and `Cached` when the legacy local log fallback is active. Hover readouts use a user-selectable text scale (default 2×); keep panel padding and label metrics tied to that scale when changing readout rendering.
 
 Pet wakeups and moves are driven by a filesystem watcher on `~/.codex/.codex-global-state.json`, with a slow fallback timer for missed events. Keep that event-driven path intact when changing frame-following behavior.
 
@@ -77,7 +77,7 @@ When changing behavior or visuals:
 
 1. Edit `tools/codex-pet-limit-rings.swift`.
 2. Keep packaging scripts in `tools/` and update `docs/limit-rings.md` when the user-facing contract changes.
-3. Run:
+3. Run `bash tools/test-limit-rings.sh` for usage parsing/rendering changes, then:
 
 ```bash
 bash -n tools/*.sh

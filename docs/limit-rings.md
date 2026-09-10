@@ -36,9 +36,11 @@ No OpenAI API key is required. The menu summary says `Live` when the direct usag
 ## Rendering Model
 
 - Outer ring: weekly remaining percentage.
-- Inner ring: five-hour remaining percentage when Codex exposes that window.
-- Reset labels: JST reset dates from the matching five-hour and weekly buckets, shown in the menu and hover readouts.
-- Ring colors are derived from remaining capacity: blue (weekly) or green (five-hour) for healthy, amber for low, and red for critical.
+- The entire ring stack is offset outward by an extra 40 macOS points. With up to four rings spaced 13 points apart, the innermost stroke remains at least 20 points outside half the pet frame’s longest side. Panel and preview padding include this clearance; hover text scaling does not change ring radii.
+- Following rings, outside to inside: normal five-hour (if exposed), Spark weekly, Spark five-hour (each only if exposed). A Pro account exposing only normal weekly plus both Spark windows has three rings; an account exposing all four windows has four.
+- Spark is selected from `additional_rate_limits` by `metered_feature == codex_bengalfox` or `limit_name == GPT-5.3-Codex-Spark`. Legacy event maps accept either identifier as a key. Unrelated additional limits are ignored. Each Spark window is matched by duration, never substituted for a normal window.
+- Reset labels: JST reset dates from each matching normal or Spark bucket, shown in the menu and hover readouts. Spark labels explicitly say `Spark Week` / `Spark 5h`. Three or more hover labels are spread vertically to separate coincident arc endpoints.
+- Normal ring colors: blue (weekly) or green (five-hour) for healthy, amber for low, and red for critical. Spark weekly is purple and Spark five-hour is pink; these hues remain distinct at low capacity, with a darker shade at 30% or less. All available buckets contribute to the urgency halo.
 - Exact percentages are shown only on hover and in the menu to keep the pet feeling ambient rather than dashboard-like.
 - Hover readout font size is user-selectable via the menu-bar `文字サイズ` submenu. Scales are relative to the original base fonts (11.5pt percent / 9pt detail): 1.0, 1.5, 2.0 (default), 2.5, and 3.0. Panel padding grows with the scale so larger labels stay readable without moving the ring away from the pet.
 - Preferences stored by the app:
@@ -78,7 +80,9 @@ Build and run the app from the repository:
 tools/run-limit-rings.sh
 ```
 
-Render a static preview:
+Run regression checks with `bash tools/test-limit-rings.sh`.
+
+Render a static preview (`--size` is the pet size; the canvas adds the live panel’s label padding):
 
 ```bash
 swiftc tools/codex-pet-limit-rings.swift -o tmp/codex-pet-limit-rings -framework AppKit -lsqlite3

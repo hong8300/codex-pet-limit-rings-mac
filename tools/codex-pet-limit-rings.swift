@@ -28,6 +28,8 @@ struct LimitState {
     var planType: String?
     var fiveHour: LimitBucket?
     var weekly: LimitBucket?
+    var sparkFiveHour: LimitBucket? = nil
+    var sparkWeekly: LimitBucket? = nil
     var observedAt: Date
     var source: String
 
@@ -67,13 +69,16 @@ private func loadReadoutTextScale() -> CGFloat {
     return CGFloat(defaultReadoutTextScale)
 }
 
-/// Panel padding grows with readout text scale so hover labels fit without resizing the ring away from the pet.
+/// Move the entire ring stack outward, leaving clearance even with all four rings.
+private let ringOutwardMargin: CGFloat = 40.0
+
+/// Reserve both ring clearance and label space; text scaling does not change ring size.
 private func panelPadding(forReadoutTextScale scale: CGFloat) -> CGFloat {
-    38.0 + 26.0 * (scale - 1.0)
+    76.0 + ringOutwardMargin + 38.0 * (scale - 1.0)
 }
 
 private func readoutInset(forReadoutTextScale scale: CGFloat) -> CGFloat {
-    16.0 + 26.0 * (scale - 1.0)
+    54.0 + 38.0 * (scale - 1.0)
 }
 
 private func normalizedEpochSeconds(_ value: TimeInterval) -> TimeInterval {
@@ -237,15 +242,22 @@ final class LimitStateReader {
         guard semaphore.wait(timeout: .now() + 7.0) == .success,
               let http = resultResponse as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
-              let data = resultData,
-              let payload = try? JSONDecoder().decode(UsagePayload.self, from: data) else {
+              let data = resultData else {
             return nil
         }
 
+        return decodeUsage(data)
+    }
+
+    func decodeUsage(_ data: Data) -> LimitState? {
+        guard let payload = try? JSONDecoder().decode(UsagePayload.self, from: data) else { return nil }
+        let spark = payload.additional_rate_limits?.first {
+            $0.metered_feature == "codex_bengalfox" || $0.limit_name == "GPT-5.3-Codex-Spark"
+        }?.rate_limit
         let fiveHour = fiveHourBucket(from: payload.rate_limit)
         let weekly = weeklyBucket(from: payload.rate_limit)
 
-        return LimitState(planType: payload.plan_type, fiveHour: fiveHour, weekly: weekly, observedAt: Date(), source: "live")
+        return LimitState(planType: payload.plan_type, fiveHour: fiveHour, weekly: weekly, sparkFiveHour: fiveHourBucket(from: spark), sparkWeekly: weeklyBucket(from: spark), observedAt: Date(), source: "live")
     }
 
     private func readAccessToken() -> String? {
@@ -296,10 +308,12 @@ final class LimitStateReader {
             return .empty
         }
 
+        let spark = payload.additional_rate_limits?["codex_bengalfox"]
+            ?? payload.additional_rate_limits?["GPT-5.3-Codex-Spark"]
         let fiveHour = fiveHourBucket(from: payload.rate_limits)
         let weekly = weeklyBucket(from: payload.rate_limits)
 
-        return LimitState(planType: payload.plan_type, fiveHour: fiveHour, weekly: weekly, observedAt: Date(), source: "legacy-log")
+        return LimitState(planType: payload.plan_type, fiveHour: fiveHour, weekly: weekly, sparkFiveHour: fiveHourBucket(from: spark), sparkWeekly: weeklyBucket(from: spark), observedAt: Date(), source: "legacy-log")
     }
 
     private func buckets(from payload: RatePayload?) -> [LimitBucket] {
@@ -713,41 +727,24 @@ struct LimitRingRenderer {
 
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let minSide = min(rect.width, rect.height)
-        let urgency = max(urgency(for: state.fiveHour), urgency(for: state.weekly))
+        let urgency = rings.map { self.urgency(for: $0.bucket) }.max() ?? 0
         let breathe = CGFloat((sin(phase * 2.0 * .pi) + 1.0) * 0.5)
         let pulse = CGFloat(1.0 + urgency * 0.025 * breathe)
-        // Keep the ring close to the pet while leaving room outside for hover readouts.
+        // Panel padding includes outward clearance for the full ring stack and hover labels.
         let outerRadius = (minSide * 0.5 - readoutInset(forReadoutTextScale: readoutTextScale)) * pulse
 
         drawHalo(context, center: center, radius: outerRadius, urgency: CGFloat(urgency), breathe: breathe)
         drawTicks(context, center: center, radius: outerRadius + 5.0)
 
-        if let weekly = state.weekly {
-            drawRing(
-                context,
-                center: center,
-                radius: outerRadius,
-                lineWidth: 7.0,
-                bucket: weekly,
-                color: color(forRemaining: weekly.remainingPercent, role: .weekly),
-                trackAlpha: 0.20,
-                phase: phase
-            )
-        } else {
+        if rings.isEmpty {
             drawMissingRing(context, center: center, radius: outerRadius, lineWidth: 7.0)
         }
-
-        if let fiveHour = state.fiveHour {
-            drawRing(
-                context,
-                center: center,
-                radius: outerRadius - 13.0,
-                lineWidth: 6.0,
-                bucket: fiveHour,
-                color: color(forRemaining: fiveHour.remainingPercent, role: .fiveHour),
-                trackAlpha: 0.16,
-                phase: phase + 0.38
-            )
+        for (index, ring) in rings.enumerated() {
+            drawRing(context, center: center,
+                     radius: max(4, outerRadius - CGFloat(index) * 13),
+                     lineWidth: index == 0 ? 7 : 6, bucket: ring.bucket,
+                     color: color(forRemaining: ring.bucket.remainingPercent, role: ring.role),
+                     trackAlpha: 0.18, phase: phase + Double(index) * 0.23)
         }
 
         if showsReadout {
@@ -759,6 +756,17 @@ struct LimitRingRenderer {
     private enum RingRole {
         case fiveHour
         case weekly
+        case sparkWeekly
+        case sparkFiveHour
+    }
+
+    private var rings: [(bucket: LimitBucket, role: RingRole, label: String)] {
+        var result: [(bucket: LimitBucket, role: RingRole, label: String)] = []
+        if let bucket = state.weekly { result.append((bucket, .weekly, "Week")) }
+        if let bucket = state.fiveHour { result.append((bucket, .fiveHour, "5h")) }
+        if let bucket = state.sparkWeekly { result.append((bucket, .sparkWeekly, "Spark Week")) }
+        if let bucket = state.sparkFiveHour { result.append((bucket, .sparkFiveHour, "Spark 5h")) }
+        return result
     }
 
     private struct LimitReadout {
@@ -867,28 +875,15 @@ struct LimitRingRenderer {
         var readouts: [LimitReadout] = []
         let labelRadiusOffset = 22.0 + 14.0 * (readoutTextScale - 1.0)
 
-        if let fiveHour = state.fiveHour {
+        for (index, ring) in rings.enumerated() {
             readouts.append(makeReadout(
-                text: formatPercent(fiveHour.remainingPercent),
-                detailText: formatReadoutDetail(label: "5h", resetAt: fiveHour.resetAt),
+                text: formatPercent(ring.bucket.remainingPercent),
+                detailText: formatReadoutDetail(label: ring.label, resetAt: ring.bucket.resetAt),
                 center: center,
-                ringRadius: outerRadius - 13.0,
+                ringRadius: max(4, outerRadius - CGFloat(index) * 13),
                 labelRadius: outerRadius + labelRadiusOffset,
-                remainingPercent: fiveHour.remainingPercent,
-                color: color(forRemaining: fiveHour.remainingPercent, role: .fiveHour),
-                bounds: bounds
-            ))
-        }
-
-        if let weekly = state.weekly {
-            readouts.append(makeReadout(
-                text: formatPercent(weekly.remainingPercent),
-                detailText: formatReadoutDetail(label: "Week", resetAt: weekly.resetAt),
-                center: center,
-                ringRadius: outerRadius,
-                labelRadius: outerRadius + labelRadiusOffset,
-                remainingPercent: weekly.remainingPercent,
-                color: color(forRemaining: weekly.remainingPercent, role: .weekly),
+                remainingPercent: ring.bucket.remainingPercent,
+                color: color(forRemaining: ring.bucket.remainingPercent, role: ring.role),
                 bounds: bounds
             ))
         }
@@ -936,6 +931,15 @@ struct LimitRingRenderer {
         guard readouts.count > 1 else { return readouts }
         var resolved = readouts
 
+        if resolved.count >= 3 {
+            let totalHeight = resolved.reduce(CGFloat(0)) { $0 + $1.labelRect.height } + CGFloat(resolved.count - 1) * 8
+            var y = bounds.midY - totalHeight / 2
+            for index in resolved.indices {
+                resolved[index].labelRect.origin.y = y
+                resolved[index].labelRect = clamp(resolved[index].labelRect, inside: bounds)
+                y += resolved[index].labelRect.height + 8
+            }
+        }
         let averageAngle = resolved.map(\.angle).reduce(0, +) / CGFloat(resolved.count)
         let tangent = CGPoint(x: -sin(averageAngle), y: cos(averageAngle))
         for index in resolved.indices {
@@ -1028,6 +1032,13 @@ struct LimitRingRenderer {
     }
 
     private func color(forRemaining remaining: Double, role: RingRole) -> NSColor {
+        // Spark keeps its own hues even at low capacity; urgency still drives the halo.
+        if role == .sparkWeekly {
+            return NSColor(calibratedRed: 0.72, green: remaining <= 30 ? 0.30 : 0.52, blue: 1.0, alpha: 0.96)
+        }
+        if role == .sparkFiveHour {
+            return NSColor(calibratedRed: 1.0, green: remaining <= 30 ? 0.25 : 0.52, blue: 0.73, alpha: 0.96)
+        }
         if remaining <= 12 {
             return NSColor(calibratedRed: 1.00, green: 0.26, blue: 0.22, alpha: 0.96)
         }
@@ -1037,6 +1048,8 @@ struct LimitRingRenderer {
         switch role {
         case .fiveHour:
             return NSColor(calibratedRed: 0.25, green: 0.88, blue: 0.72, alpha: 0.94)
+        case .sparkWeekly, .sparkFiveHour:
+            preconditionFailure("Spark colors are handled above")
         case .weekly:
             return NSColor(calibratedRed: 0.36, green: 0.70, blue: 1.00, alpha: 0.94)
         }
@@ -1054,7 +1067,7 @@ struct LimitRingRenderer {
     }
 
     private func formatReadoutDetail(label: String, resetAt: TimeInterval?) -> String {
-        formatResetJST(resetAt).map { "\(label) · \($0)" } ?? "\(label) · Reset --"
+        formatResetJST(resetAt).map { "\(label)\n\($0)" } ?? "\(label)\nReset --"
     }
 
     private func readoutPercentAttributes() -> [NSAttributedString.Key: Any] {
@@ -1408,7 +1421,7 @@ final class LimitRingsApp: NSObject {
 
     private func updateSummaryMenuItem() {
         guard let summaryItem else { return }
-        guard ringView.state.fiveHour != nil || ringView.state.weekly != nil else {
+        guard ringView.state.fiveHour != nil || ringView.state.weekly != nil || ringView.state.sparkFiveHour != nil || ringView.state.sparkWeekly != nil else {
             summaryItem.title = "Waiting for Codex limit data"
             statusItem?.button?.toolTip = "Codex limits: waiting for data"
             return
@@ -1421,6 +1434,12 @@ final class LimitRingsApp: NSObject {
         }
         if let weekly = ringView.state.weekly {
             summaries.append(formatSummary(label: "Weekly", bucket: weekly))
+        }
+        if let bucket = ringView.state.sparkWeekly {
+            summaries.append(formatSummary(label: "Spark Weekly", bucket: bucket))
+        }
+        if let bucket = ringView.state.sparkFiveHour {
+            summaries.append(formatSummary(label: "Spark 5h", bucket: bucket))
         }
         let details = summaries.joined(separator: " | ")
         summaryItem.title = "\(source) \(details)"
@@ -1837,7 +1856,8 @@ final class LimitRingsApp: NSObject {
 
 func renderPreview(config: LimitRingsConfig) -> Bool {
     let state = LimitStateReader(logsPath: config.logsPath, authPath: config.authPath).readLatest()
-    let size = CGSize(width: config.fallbackSize, height: config.fallbackSize)
+    let side = config.fallbackSize + 2 * panelPadding(forReadoutTextScale: CGFloat(defaultReadoutTextScale))
+    let size = CGSize(width: side, height: side)
     let image = NSImage(size: size)
     image.lockFocus()
     NSColor.clear.setFill()
