@@ -43,7 +43,7 @@ for (plan, state) in [("weekly", weekly)] {
         let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
         let suffix = hover ? "hover" : "rings"
         try bitmap.representation(using: .png, properties: [:])!
-            .write(to: URL(fileURLWithPath: "docs/assets/\(plan)-\(suffix).png"))
+            .write(to: URL(fileURLWithPath: "docs/assets/\(plan)-pet-\(suffix)-20260918.png"))
     }
 }
 SWIFT
