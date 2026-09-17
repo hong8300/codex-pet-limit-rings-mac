@@ -6,16 +6,10 @@ mkdir -p tmp docs/assets
 sed '/^guard let config = parseConfig() else {/,$d' tools/codex-pet-limit-rings.swift > tmp/readme-previews.swift
 cat >> tmp/readme-previews.swift <<'SWIFT'
 let week = LimitBucket(usedPercent: 20, windowMinutes: 10080, resetAt: 1789606059)
-let five = LimitBucket(usedPercent: 35, windowMinutes: 300, resetAt: 1789038000)
-let sparkWeek = LimitBucket(usedPercent: 45, windowMinutes: 10080, resetAt: 1789606059)
-let sparkFive = LimitBucket(usedPercent: 60, windowMinutes: 300, resetAt: 1789038000)
-let plus = LimitState(planType: "plus", fiveHour: five, weekly: week,
-                      observedAt: Date(timeIntervalSince1970: 1789002000), source: "sample")
-let pro = LimitState(planType: "pro", fiveHour: nil, weekly: week,
-                     sparkFiveHour: sparkFive, sparkWeekly: sparkWeek,
-                     observedAt: Date(timeIntervalSince1970: 1789002000), source: "sample")
+let weekly = LimitState(planType: "pro", weekly: week,
+                        observedAt: Date(timeIntervalSince1970: 1789002000), source: "sample")
 let side: CGFloat = 164 + 2 * panelPadding(forReadoutTextScale: 2)
-for (plan, state) in [("plus", plus), ("pro", pro)] {
+for (plan, state) in [("weekly", weekly)] {
     for hover in [false, true] {
         let image = NSImage(size: NSSize(width: side, height: side))
         image.lockFocus()

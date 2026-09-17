@@ -11,7 +11,7 @@ The rings are pet-agnostic. They work with any pet Codex displays because the ap
 - `ログイン時に起動` toggles the LaunchAgent login item. Installed builds default this setting to on.
 - `文字サイズ` sets the hover readout font scale: `小` / `中` / `大` / `特大` / `最大` (1×–3×). The default is `大` (2×). The choice is stored in UserDefaults and survives relaunches.
 - `Refresh Now` rereads usage and pet-position state.
-- Hovering over the ring or pet shows the exact five-hour and weekly remaining percentages and JST reset dates at their arc endpoints.
+- Hovering over the ring or pet shows the weekly remaining percentage and JST reset date at the arc endpoint.
 - Dragging the pet makes the rings follow the gesture immediately while Codex persists the new position.
 - Closing the Codex pet hides the rings.
 - Multi-display positioning uses the screen containing the pet bounds, not the currently focused screen.
@@ -22,7 +22,7 @@ The rings are pet-agnostic. They work with any pet Codex displays because the ap
 
 The app reads live usage first, then local files as support or legacy fallback:
 
-- `https://chatgpt.com/backend-api/wham/usage`: live usage endpoint, called with the local ChatGPT access token from `~/.codex/auth.json`. Current Codex exposes 18000-second (five-hour) and 604800-second (weekly) windows under `rate_limit`; the app identifies each bucket by duration rather than relying on primary/secondary ordering.
+- `https://chatgpt.com/backend-api/wham/usage`: live usage endpoint, called with the local ChatGPT access token from `~/.codex/auth.json`. The app selects only the 604800-second weekly window under `rate_limit` by duration, regardless of primary/secondary ordering. The endpoint returns a full response, but additional limits are not decoded and five-hour buckets are not retained.
 - `~/.codex/auth.json`: local ChatGPT auth token used for the live usage call.
 - `~/.codex/.codex-global-state.json`: current pet bounds. Current Codex stores the live overlay `x`/`y` at `electron-avatar-overlay-bounds` and may keep mascot geometry under `byDisplayId` or `byResolution`; older builds stored `electron-avatar-overlay-bounds.mascot` directly.
 - `~/.codex/config.toml`: current `avatar-overlay-mascot-width-px` value. Cached geometry is scaled to this width, and current global-state entries without `width`/`mascot` are treated as mascot-origin records.
@@ -35,12 +35,10 @@ No OpenAI API key is required. The menu summary says `Live` when the direct usag
 
 ## Rendering Model
 
-- Outer ring: weekly remaining percentage.
-- The entire ring stack is offset outward by an extra 40 macOS points. With up to four rings spaced 13 points apart, the innermost stroke remains at least 20 points outside half the pet frame’s longest side. Panel and preview padding include this clearance; hover text scaling does not change ring radii.
-- Following rings, outside to inside: normal five-hour (if exposed), Spark weekly, Spark five-hour (each only if exposed). A Pro account exposing only normal weekly plus both Spark windows has three rings; an account exposing all four windows has four.
-- Spark is selected from `additional_rate_limits` by `metered_feature == codex_bengalfox` or `limit_name == GPT-5.3-Codex-Spark`. Legacy event maps accept either identifier as a key. Unrelated additional limits are ignored. Each Spark window is matched by duration, never substituted for a normal window.
-- Reset labels: JST reset dates from each matching normal or Spark bucket, shown in the menu and hover readouts. Spark labels explicitly say `Spark Week` / `Spark 5h`. Three or more hover labels are spread vertically to separate coincident arc endpoints.
-- Normal ring colors: blue (weekly) or green (five-hour) for healthy, amber for low, and red for critical. Spark weekly is purple and Spark five-hour is pink; these hues remain distinct at low capacity, with a darker shade at 30% or less. All available buckets contribute to the urgency halo.
+- One weekly ring. No five-hour or Spark rings, state, or readouts.
+- Radius is half the pet frame’s longest side plus 38 macOS points (previously 62). For a 164-point pet, the radius is 120 points instead of 144. Hover text scale does not change this radius.
+- Weekly reset labels use JST in both the menu and hover readout.
+- Ring color is blue when healthy, amber when low, and red when critical. Weekly remaining capacity drives the urgency halo.
 - Exact percentages are shown only on hover and in the menu to keep the pet feeling ambient rather than dashboard-like.
 - Hover readout font size is user-selectable via the menu-bar `文字サイズ` submenu. Scales are relative to the original base fonts (11.5pt percent / 9pt detail): 1.0, 1.5, 2.0 (default), 2.5, and 3.0. Panel padding grows with the scale so larger labels stay readable without moving the ring away from the pet.
 - Preferences stored by the app:

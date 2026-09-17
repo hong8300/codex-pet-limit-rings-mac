@@ -2,7 +2,7 @@
 
 ## Goal
 
-This repository packages `codex-pet-limit-rings`: a native macOS companion app that draws five-hour and weekly usage-limit rings around the current Codex pet without patching Codex.
+This repository packages `codex-pet-limit-rings`: a native macOS companion app that draws a weekly usage-limit ring around the current Codex pet without patching Codex.
 
 ## Primary Contract
 
@@ -10,7 +10,7 @@ This repository packages `codex-pet-limit-rings`: a native macOS companion app t
 - Treat `tools/codex-pet-limit-rings.swift` as the app source.
 - Treat `tools/install-limit-rings.sh` and `tools/uninstall-limit-rings.sh` as the public install/uninstall path.
 - Treat `skills/codex-pet-limit-rings/SKILL.md` as the reusable Codex-agent workflow.
-- Show the current five-hour and weekly remaining percentages and reset dates in JST; omit the five-hour ring when Codex does not expose that limit.
+- Show only the current weekly remaining percentage and reset date in JST; ignore five-hour and additional limits.
 
 ## Done When
 
