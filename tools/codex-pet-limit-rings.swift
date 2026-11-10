@@ -17,11 +17,23 @@ struct LimitBucket {
         guard let windowMinutes else { return false }
         return abs(windowMinutes - weeklyWindowMinutes) <= weeklyWindowMinutes * 0.05
     }
+
+    var isFiveHourWindow: Bool {
+        guard let windowMinutes else { return false }
+        return abs(windowMinutes - fiveHourWindowMinutes) <= fiveHourWindowMinutes * 0.05
+    }
+
+    /// The window is used up; Codex blocks requests until `resetAt`.
+    var isExhausted: Bool {
+        remainingPercent <= 0.0
+    }
 }
 
 struct LimitState {
     var planType: String?
     var weekly: LimitBucket?
+    /// Present only on plans whose usage endpoint exposes a five-hour window (e.g. Plus).
+    var fiveHour: LimitBucket? = nil
     var observedAt: Date
     var source: String
 
@@ -45,6 +57,7 @@ private let readoutTextScaleOptions: [(title: String, scale: Double)] = [
 ]
 private let liveUsageURL = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
 private let weeklyWindowMinutes = 7.0 * 24.0 * 60.0
+private let fiveHourWindowMinutes = 5.0 * 60.0
 private let codexWindowOwnerNames = Set(["Codex", "ChatGPT"])
 private let launchAgentLabel = "com.codex-pet.limit-rings"
 
@@ -60,7 +73,7 @@ private func loadReadoutTextScale() -> CGFloat {
     return CGFloat(defaultReadoutTextScale)
 }
 
-/// A single ring needs only a small extra gap around the pet.
+/// Outward gap that keeps the inner five-hour ring clear of the pet.
 private let ringOutwardMargin: CGFloat = 16.0
 
 /// Reserve both ring clearance and label space; text scaling does not change ring size.
@@ -234,7 +247,13 @@ final class LimitStateReader {
 
     func decodeUsage(_ data: Data) -> LimitState? {
         guard let payload = try? JSONDecoder().decode(UsagePayload.self, from: data) else { return nil }
-        return LimitState(planType: payload.plan_type, weekly: weeklyBucket(from: payload.rate_limit), observedAt: Date(), source: "live")
+        return LimitState(
+            planType: payload.plan_type,
+            weekly: weeklyBucket(from: payload.rate_limit),
+            fiveHour: fiveHourBucket(from: payload.rate_limit),
+            observedAt: Date(),
+            source: "live"
+        )
     }
 
     private func readAccessToken() -> String? {
@@ -285,7 +304,13 @@ final class LimitStateReader {
             return .empty
         }
 
-        return LimitState(planType: payload.plan_type, weekly: weeklyBucket(from: payload.rate_limits), observedAt: Date(), source: "legacy-log")
+        return LimitState(
+            planType: payload.plan_type,
+            weekly: weeklyBucket(from: payload.rate_limits),
+            fiveHour: fiveHourBucket(from: payload.rate_limits),
+            observedAt: Date(),
+            source: "legacy-log"
+        )
     }
 
     private func buckets(from payload: RatePayload?) -> [LimitBucket] {
@@ -295,6 +320,10 @@ final class LimitStateReader {
             payload?.primary?.toBucket(),
             payload?.secondary?.toBucket()
         ].compactMap { $0 }
+    }
+
+    private func fiveHourBucket(from payload: RatePayload?) -> LimitBucket? {
+        buckets(from: payload).first(where: \.isFiveHourWindow)
     }
 
     private func weeklyBucket(from payload: RatePayload?) -> LimitBucket? {
@@ -695,7 +724,7 @@ struct LimitRingRenderer {
 
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let minSide = min(rect.width, rect.height)
-        let urgency = self.urgency(for: state.weekly)
+        let urgency = max(self.urgency(for: state.weekly), self.urgency(for: state.fiveHour))
         let breathe = CGFloat((sin(phase * 2.0 * .pi) + 1.0) * 0.5)
         let pulse = CGFloat(1.0 + urgency * 0.025 * breathe)
         // Panel padding includes outward clearance for the weekly ring and hover labels.
@@ -704,13 +733,14 @@ struct LimitRingRenderer {
         drawHalo(context, center: center, radius: outerRadius, urgency: CGFloat(urgency), breathe: breathe)
         drawTicks(context, center: center, radius: outerRadius + 5.0)
 
-        if let weekly = state.weekly {
-            drawRing(context, center: center, radius: outerRadius,
-                     lineWidth: 7, bucket: weekly,
-                     color: color(forRemaining: weekly.remainingPercent),
-                     trackAlpha: 0.18, phase: phase)
-        } else {
+        if state.weekly == nil {
             drawMissingRing(context, center: center, radius: outerRadius, lineWidth: 7.0)
+        }
+        for (index, ring) in rings.enumerated() {
+            drawRing(context, center: center, radius: ringRadius(for: ring.role, outerRadius: outerRadius),
+                     lineWidth: ring.role == .weekly ? 7 : 6, bucket: ring.bucket,
+                     color: color(forRemaining: ring.bucket.remainingPercent, role: ring.role),
+                     trackAlpha: 0.18, phase: phase + Double(index) * 0.23)
         }
 
         if showsReadout {
@@ -719,12 +749,30 @@ struct LimitRingRenderer {
         context.restoreGState()
     }
 
+    private enum RingRole {
+        case weekly
+        case fiveHour
+    }
+
+    /// Weekly is the outer ring; the five-hour ring sits just inside it when the plan has one.
+    private var rings: [(bucket: LimitBucket, role: RingRole, label: String)] {
+        var result: [(bucket: LimitBucket, role: RingRole, label: String)] = []
+        if let bucket = state.weekly { result.append((bucket, .weekly, "Week")) }
+        if let bucket = state.fiveHour { result.append((bucket, .fiveHour, "5h")) }
+        return result
+    }
+
+    private func ringRadius(for role: RingRole, outerRadius: CGFloat) -> CGFloat {
+        role == .weekly ? outerRadius : max(4, outerRadius - 13)
+    }
+
     private struct LimitReadout {
         var text: String
         var detailText: String?
         var ringPoint: CGPoint
         var labelRect: CGRect
         var color: NSColor
+        var angle: CGFloat
     }
 
     private func urgency(for bucket: LimitBucket?) -> Double {
@@ -787,6 +835,17 @@ struct LimitRingRenderer {
         context.addArc(center: center, radius: radius + 1.0, startAngle: 0, endAngle: CGFloat.pi * 2.0, clockwise: false)
         context.strokePath()
 
+        if bucket.isExhausted {
+            // A used-up window would otherwise be a grey track with a stray red stub;
+            // tint the whole track so "limit reached" reads as an intentional state.
+            context.setShadow(offset: .zero, blur: 8.0, color: color.withAlphaComponent(0.40).cgColor)
+            context.setStrokeColor(color.withAlphaComponent(0.46).cgColor)
+            context.addArc(center: center, radius: radius, startAngle: 0, endAngle: CGFloat.pi * 2.0, clockwise: false)
+            context.strokePath()
+            context.restoreGState()
+            return
+        }
+
         context.setStrokeColor(NSColor(calibratedWhite: 1.0, alpha: trackAlpha).cgColor)
         context.addArc(center: center, radius: radius, startAngle: 0, endAngle: CGFloat.pi * 2.0, clockwise: false)
         context.strokePath()
@@ -821,16 +880,75 @@ struct LimitRingRenderer {
     }
 
     private func drawLimitReadouts(_ context: CGContext, center: CGPoint, outerRadius: CGFloat, bounds: CGRect) {
-        guard let weekly = state.weekly else { return }
         let labelRadiusOffset = 22.0 + 14.0 * (readoutTextScale - 1.0)
-        let readout = makeReadout(
-            text: formatPercent(weekly.remainingPercent),
-            detailText: formatReadoutDetail(label: "Week", resetAt: weekly.resetAt),
-            center: center, ringRadius: outerRadius,
-            labelRadius: outerRadius + labelRadiusOffset,
-            remainingPercent: weekly.remainingPercent,
-            color: color(forRemaining: weekly.remainingPercent), bounds: bounds)
-        drawReadout(context, readout: readout)
+        let readouts = rings.map { ring in
+            makeReadout(
+                text: formatPercent(ring.bucket.remainingPercent),
+                detailText: formatReadoutDetail(label: ring.label, bucket: ring.bucket),
+                center: center,
+                ringRadius: ringRadius(for: ring.role, outerRadius: outerRadius),
+                labelRadius: outerRadius + labelRadiusOffset,
+                remainingPercent: ring.bucket.remainingPercent,
+                color: color(forRemaining: ring.bucket.remainingPercent, role: ring.role),
+                bounds: bounds
+            )
+        }
+        for readout in resolveReadoutOverlaps(readouts, bounds: bounds) {
+            drawReadout(context, readout: readout)
+        }
+    }
+
+    /// Two readouts can share an anchor angle (e.g. weekly 0% and five-hour 100%), so push them apart.
+    private func resolveReadoutOverlaps(_ readouts: [LimitReadout], bounds: CGRect) -> [LimitReadout] {
+        guard readouts.count > 1 else { return readouts }
+        var resolved = readouts
+
+        let averageAngle = resolved.map(\.angle).reduce(0, +) / CGFloat(resolved.count)
+        let tangent = CGPoint(x: -sin(averageAngle), y: cos(averageAngle))
+        for index in resolved.indices {
+            let direction: CGFloat = index == 0 ? -1.0 : 1.0
+            resolved[index].labelRect = clamp(
+                resolved[index].labelRect.offsetBy(dx: tangent.x * 12.0 * direction, dy: tangent.y * 12.0 * direction),
+                inside: bounds
+            )
+        }
+
+        for _ in 0..<12 {
+            var changed = false
+            for firstIndex in 0..<resolved.count {
+                for secondIndex in (firstIndex + 1)..<resolved.count {
+                    let first = expanded(resolved[firstIndex].labelRect)
+                    let second = expanded(resolved[secondIndex].labelRect)
+                    guard first.intersects(second) else { continue }
+
+                    let xOverlap = min(first.maxX, second.maxX) - max(first.minX, second.minX)
+                    let yOverlap = min(first.maxY, second.maxY) - max(first.minY, second.minY)
+                    let gap: CGFloat = 6.0
+                    if xOverlap <= yOverlap {
+                        let direction: CGFloat = resolved[firstIndex].labelRect.midX <= resolved[secondIndex].labelRect.midX ? -1.0 : 1.0
+                        let nudge = xOverlap / 2.0 + gap
+                        resolved[firstIndex].labelRect = resolved[firstIndex].labelRect.offsetBy(dx: direction * nudge, dy: 0)
+                        resolved[secondIndex].labelRect = resolved[secondIndex].labelRect.offsetBy(dx: -direction * nudge, dy: 0)
+                    } else {
+                        let direction: CGFloat = resolved[firstIndex].labelRect.midY <= resolved[secondIndex].labelRect.midY ? -1.0 : 1.0
+                        let nudge = yOverlap / 2.0 + gap
+                        resolved[firstIndex].labelRect = resolved[firstIndex].labelRect.offsetBy(dx: 0, dy: direction * nudge)
+                        resolved[secondIndex].labelRect = resolved[secondIndex].labelRect.offsetBy(dx: 0, dy: -direction * nudge)
+                    }
+
+                    resolved[firstIndex].labelRect = clamp(resolved[firstIndex].labelRect, inside: bounds)
+                    resolved[secondIndex].labelRect = clamp(resolved[secondIndex].labelRect, inside: bounds)
+                    changed = true
+                }
+            }
+            if !changed { break }
+        }
+
+        return resolved
+    }
+
+    private func expanded(_ rect: CGRect) -> CGRect {
+        rect.insetBy(dx: -4.0, dy: -3.0)
     }
 
     private func makeReadout(
@@ -864,7 +982,7 @@ struct LimitRingRenderer {
             height: labelSize.height
         )
         labelRect = clamp(labelRect, inside: bounds)
-        return LimitReadout(text: text, detailText: detailText, ringPoint: ringPoint, labelRect: labelRect, color: color)
+        return LimitReadout(text: text, detailText: detailText, ringPoint: ringPoint, labelRect: labelRect, color: color, angle: angle)
     }
 
     private func clamp(_ rect: CGRect, inside bounds: CGRect) -> CGRect {
@@ -913,14 +1031,19 @@ struct LimitRingRenderer {
         context.restoreGState()
     }
 
-    private func color(forRemaining remaining: Double) -> NSColor {
+    private func color(forRemaining remaining: Double, role: RingRole) -> NSColor {
         if remaining <= 12 {
             return NSColor(calibratedRed: 1.00, green: 0.26, blue: 0.22, alpha: 0.96)
         }
         if remaining <= 30 {
             return NSColor(calibratedRed: 1.00, green: 0.68, blue: 0.20, alpha: 0.96)
         }
-        return NSColor(calibratedRed: 0.36, green: 0.70, blue: 1.00, alpha: 0.94)
+        switch role {
+        case .weekly:
+            return NSColor(calibratedRed: 0.36, green: 0.70, blue: 1.00, alpha: 0.94)
+        case .fiveHour:
+            return NSColor(calibratedRed: 0.25, green: 0.88, blue: 0.72, alpha: 0.94)
+        }
     }
 
     private func point(center: CGPoint, radius: CGFloat, angle: CGFloat) -> CGPoint {
@@ -934,8 +1057,9 @@ struct LimitRingRenderer {
         return String(format: "%.1f%%", percent)
     }
 
-    private func formatReadoutDetail(label: String, resetAt: TimeInterval?) -> String {
-        formatResetJST(resetAt).map { "\(label)\n\($0)" } ?? "\(label)\nReset --"
+    private func formatReadoutDetail(label: String, bucket: LimitBucket) -> String {
+        let title = bucket.isExhausted ? "\(label) 上限到達" : label
+        return "\(title)\n\(formatResetJST(bucket.resetAt) ?? "Reset --")"
     }
 
     private func readoutPercentAttributes() -> [NSAttributedString.Key: Any] {
@@ -1289,21 +1413,27 @@ final class LimitRingsApp: NSObject {
 
     private func updateSummaryMenuItem() {
         guard let summaryItem else { return }
-        guard let weekly = ringView.state.weekly else {
+        let state = ringView.state
+        let summaries = [
+            state.weekly.map { formatSummary(label: "Weekly", bucket: $0) },
+            state.fiveHour.map { formatSummary(label: "5h", bucket: $0) }
+        ].compactMap { $0 }
+        guard !summaries.isEmpty else {
             summaryItem.title = "Waiting for Codex limit data"
             statusItem?.button?.toolTip = "Codex limits: waiting for data"
             return
         }
 
-        let source = ringView.state.source == "live" ? "Live" : "Cached"
-        let details = formatSummary(label: "Weekly", bucket: weekly)
+        let source = state.source == "live" ? "Live" : "Cached"
+        let details = summaries.joined(separator: " | ")
         summaryItem.title = "\(source) \(details)"
         statusItem?.button?.toolTip = "Codex limits: \(details)"
     }
 
     private func formatSummary(label: String, bucket: LimitBucket) -> String {
         let reset = formatResetJST(bucket.resetAt).map { "Reset \($0)" } ?? "Reset --"
-        return "\(label) \(formatPercent(bucket.remainingPercent)) · \(reset)"
+        let reached = bucket.isExhausted ? " 上限到達" : ""
+        return "\(label) \(formatPercent(bucket.remainingPercent))\(reached) · \(reset)"
     }
 
     private func updateShowRingsMenuItem() {

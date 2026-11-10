@@ -6,14 +6,15 @@ mkdir -p tmp docs/assets
 sed '/^guard let config = parseConfig() else {/,$d' tools/codex-pet-limit-rings.swift > tmp/readme-previews.swift
 cat >> tmp/readme-previews.swift <<'SWIFT'
 let week = LimitBucket(usedPercent: 20, windowMinutes: 10080, resetAt: 1789606059)
-let weekly = LimitState(planType: "pro", weekly: week,
-                        observedAt: Date(timeIntervalSince1970: 1789002000), source: "sample")
+let five = LimitBucket(usedPercent: 35, windowMinutes: 300, resetAt: 1789016400)
+let plus = LimitState(planType: "plus", weekly: week, fiveHour: five,
+                      observedAt: Date(timeIntervalSince1970: 1789002000), source: "sample")
 // Reuse the pet from the already-published screenshot, without reading private pet assets.
 guard let petReference = NSImage(contentsOfFile: "docs/assets/pro-pet-rings-20260910.png") else {
     fatalError("Missing published pet reference")
 }
 let side: CGFloat = 164 + 2 * panelPadding(forReadoutTextScale: 2)
-for (plan, state) in [("weekly", weekly)] {
+for (plan, state) in [("plus", plus)] {
     for hover in [false, true] {
         let overlay = NSImage(size: NSSize(width: side, height: side))
         overlay.lockFocus()
@@ -43,7 +44,7 @@ for (plan, state) in [("weekly", weekly)] {
         let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
         let suffix = hover ? "hover" : "rings"
         try bitmap.representation(using: .png, properties: [:])!
-            .write(to: URL(fileURLWithPath: "docs/assets/\(plan)-pet-\(suffix)-20260918.png"))
+            .write(to: URL(fileURLWithPath: "docs/assets/\(plan)-pet-\(suffix)-20261110.png"))
     }
 }
 SWIFT

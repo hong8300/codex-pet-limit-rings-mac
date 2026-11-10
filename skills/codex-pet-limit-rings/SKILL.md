@@ -67,7 +67,7 @@ The rings read:
 - `~/.codex/config.toml` for `avatar-overlay-mascot-width-px`, so cached geometry can be scaled to the user's current pet size.
 - `~/.codex/logs_2.sqlite` only as a legacy fallback to the newest `codex.rate_limits` event when live usage fails and that older event exists.
 
-Display one blue weekly ring. Identify the weekly window by its duration (604800 seconds), regardless of primary/secondary ordering. Do not decode additional limits or store/render five-hour or Spark buckets. The endpoint still returns its full response; only the weekly bucket is retained. Show the weekly remaining percentage and reset date in JST in the menu and hover readout, with `Live` for direct usage and `Cached` for legacy fallback. Keep hover text scaling independent of ring radius (default text scale: 2×).
+Display an outer blue weekly ring and, when the plan exposes one (e.g. Plus), an inner teal five-hour ring. Identify windows by duration (604800 seconds weekly, 18000 seconds five-hour), regardless of primary/secondary ordering. Do not decode additional limits or store/render Spark buckets. A window at 0% remaining is drawn as a full red-tinted track and labelled `上限到達`. Show each remaining percentage and reset date in JST in the menu and hover readout, with `Live` for direct usage and `Cached` for legacy fallback. Keep hover text scaling independent of ring radius (default text scale: 2×).
 
 Pet wakeups and moves are driven by a filesystem watcher on `~/.codex/.codex-global-state.json`, with a slow fallback timer for missed events. Keep that event-driven path intact when changing frame-following behavior.
 
